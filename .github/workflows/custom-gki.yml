@@ -6,8 +6,8 @@ on:
     inputs:
       build_name:
         description: "Device & Build ID (e.g., komodo-cp1a)"
-        required: false
-        default: "gki-custom"
+        required: true
+        default: ""
         type: string
 
       root_manager:
@@ -216,16 +216,20 @@ jobs:
             --outdir "out/final" \
             --outname "${{ inputs.manifest_branch }}.img" \
             --workdir "work/repack-tmp"
-
+            
       - name: Prepare Final Artifacts
         run: |
           mkdir -p out/final
           echo -e "MANIFEST_URL=${MANIFEST_URL}\nMANIFEST_BRANCH=${MANIFEST_BRANCH}\nOTA_URL=${OTA_URL}\nTIMESTAMP=$(date -u '+%Y-%m-%d %H:%M:%S UTC')" > out/final/repack_metadata.txt
           
+          # Sanitize inputs.build_name: replace spaces and slashes with underscores
+          SAFE_BUILD_NAME=$(echo "${{ inputs.build_name }}" | tr ' /' '__')
+          
           if [ "$REPACK_ENABLED" != "true" ]; then
             echo ">>> No OTA provided. Falling back to AnyKernel3 Zip generation..."
-            # Dynamically append -AK3 to the output name
-            echo "ARTIFACT_NAME=${{ inputs.build_name }}-AK3" >> $GITHUB_ENV
+            
+            # Use the sanitized name and append -AK3
+            echo "ARTIFACT_NAME=${SAFE_BUILD_NAME}-AK3" >> $GITHUB_ENV
             
             AK3_REPO="https://github.com/shoey63/AnyKernel3.git" 
             AK3_BRANCH="master"
@@ -237,8 +241,9 @@ jobs:
             
           else
             echo ">>> OTA Repack detected. Outputting standard boot image."
-            # Keep the standard name for boot image repacks
-            echo "ARTIFACT_NAME=${{ inputs.build_name }}" >> $GITHUB_ENV
+            
+            # Use the sanitized name for standard boot image repacks
+            echo "ARTIFACT_NAME=${SAFE_BUILD_NAME}" >> $GITHUB_ENV
           fi
           
           echo ">>> Final Artifact Directory:"
