@@ -19,6 +19,7 @@ on:
           - KernelSU-Next
           - KernelSU
           - SukiSU-Ultra
+          - ReSukiSU
           
       enable_ksu_susfs:
         description: "Integrate KernelSU and SUSFS? (Uncheck to build a stock GKI kernel)"
