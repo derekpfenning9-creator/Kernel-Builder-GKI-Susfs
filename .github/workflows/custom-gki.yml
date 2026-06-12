@@ -319,9 +319,17 @@ jobs:
           
           echo ">>> Manager successfully staged for final upload!"
           
-      - name: Upload final artifact
+      - name: Upload final artifact (Kernel)
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: out/final/
+          if-no-files-found: error
+
+      - name: Upload Manager APK
+        uses: actions/upload-artifact@v4
+        with:
+          # This dynamically names the zip based on the variant they chose (e.g., ReSukiSU-Manager)
+          name: ${{ github.event.inputs.root_manager }}-Manager
+          path: manager_apk/*.apk
           if-no-files-found: error
