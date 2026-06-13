@@ -42,6 +42,9 @@ git -C "${MANAGER_DIR}" fetch --quiet "https://github.com/${UPSTREAM_REPO}.git" 
 UPSTREAM_HASH=$(git -C "${MANAGER_DIR}" merge-base HEAD FETCH_HEAD)
 SHORT_HASH=${UPSTREAM_HASH:0:7}
 
+# Export the exact sync commit to the GitHub Env for the artifact fetcher
+echo "UPSTREAM_HASH=${UPSTREAM_HASH}" >> $GITHUB_ENV
+
 echo ">>> Enforcing CI symmetry (locking version strings to ${SHORT_HASH})..."
 sed -i "s/rev-list --count HEAD/rev-list --count ${UPSTREAM_HASH}/g" "${MANAGER_DIR}/kernel/Kbuild" 2>/dev/null || true
 sed -i "s/rev-list --count \$(REPO_BRANCH)/rev-list --count ${UPSTREAM_HASH}/g" "${MANAGER_DIR}/kernel/Kbuild" 2>/dev/null || true
@@ -69,12 +72,6 @@ if [ -d "$KSU_DIR" ]; then
 else
     echo ">>> Warning: KSU directory not found at $KSU_DIR, skipping dirty flag fix."
 fi
-
-echo "----------------------------------------------"
-echo ">>> Manager APK Locator:"
-echo "URL: https://github.com/${UPSTREAM_REPO}/commit/${UPSTREAM_HASH}"
-echo "-> Select the green checkmark (✅) -> Details -> Artifacts to download the matching Manager."
-echo "----------------------------------------------"
 
 echo ">>> Injecting Bazel symlink..."
 DRIVER_ROOT="common/drivers"
