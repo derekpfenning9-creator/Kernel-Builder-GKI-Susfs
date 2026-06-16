@@ -83,8 +83,13 @@ fi
 if [ -f "common/fs/proc/task_mmu.c.rej" ]; then
   echo ">>> Found task_mmu.c.rej. Applying manual fix..."
   
-  # Inject the SUS_MAP check inside show_smap() right after 'vma' is declared.
-  # We use a sed range from the function signature down to the vma declaration.
+  # INJECTION 1: Add the missing header so the compiler knows what the macro is
+  if ! grep -q '#include <linux/susfs.h>' common/fs/proc/task_mmu.c; then
+    # Injects the susfs header right after the linux/mm.h header
+    sed -i '/#include <linux\/mm.h>/a #include <linux\/susfs.h>' common/fs/proc/task_mmu.c
+  fi
+  
+  # INJECTION 2: Inject the SUS_MAP check inside show_smap()
   sed -i '/static int show_smap(struct seq_file \*m, void \*v)/,/struct vm_area_struct \*vma = v;/ {
     /struct vm_area_struct \*vma = v;/a\
 \
@@ -104,7 +109,6 @@ if [ -f "common/fs/proc/task_mmu.c.rej" ]; then
     echo "  [-] WARNING: task_mmu.c fix failed to inject! The anchor line may have changed." >&2
   fi
 fi
-
 
 # 5. Final Validation
 echo ">>> Checking for unresolved patch rejections..."
