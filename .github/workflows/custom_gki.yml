@@ -28,12 +28,12 @@ on:
         default: true
         
       target_version:
-        description: "Target Kernel Version (e.g., 6.1.145)"
+        description: "Kernel Version (e.g., 6.1.145)"
         required: true
         type: string
         
       ota_url:
-        description: "Full OTA ZIP URL (with payload.bin in zip root)"
+        description: "Full OTA ZIP URL (blank produces AK3 zip)"
         required: false
         default: ""
         type: string
@@ -184,8 +184,9 @@ jobs:
           bash ./scripts/inject_ksu_variant.sh "${{ inputs.root_manager }}"
 
       - name: Calculate Dynamic SuSFS Branch
+        if: inputs.enable_ksu_susfs == true
         run: |
-          # Grabs the manifest branch from your workflow inputs/env
+          # Obtains the manifest branch from your workflow inputs/env
           MANIFEST="${{ env.MANIFEST_BRANCH }}" 
           
           if [[ -n "$MANIFEST" ]]; then
