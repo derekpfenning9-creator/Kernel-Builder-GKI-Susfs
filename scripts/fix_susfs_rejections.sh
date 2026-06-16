@@ -81,8 +81,6 @@ fi
 
 # 4. Fix fs/proc/task_mmu.c
 if [ -f "common/fs/proc/task_mmu.c.rej" ]; then
-# 4. Fix fs/proc/task_mmu.c
-if [ -f "common/fs/proc/task_mmu.c.rej" ]; then
   echo ">>> Found task_mmu.c.rej. Applying manual fix..."
   
   # INJECTION 1: Bulletproof header injection
@@ -92,7 +90,6 @@ if [ -f "common/fs/proc/task_mmu.c.rej" ]; then
   fi
   
   # INJECTION 2: Inject the SUS_MAP check inside show_smap()
-  # (Keep your existing sed block for this part!)
   sed -i '/static int show_smap(struct seq_file \*m, void \*v)/,/struct vm_area_struct \*vma = v;/ {
     /struct vm_area_struct \*vma = v;/a\
 \
@@ -105,11 +102,11 @@ if [ -f "common/fs/proc/task_mmu.c.rej" ]; then
   }' common/fs/proc/task_mmu.c
 
   # Sanity Check
-  if grep -q 'SUSFS_IS_INODE_SUS_MAP' common/fs/proc/task_mmu.c; then
-    echo "  -> task_mmu.c fix verified!"
+  if grep -q '#include <linux/susfs.h>' common/fs/proc/task_mmu.c && grep -q 'SUSFS_IS_INODE_SUS_MAP' common/fs/proc/task_mmu.c; then
+    echo "  -> task_mmu.c fix verified (Header & Macro injected)!"
     rm "common/fs/proc/task_mmu.c.rej"
   else
-    echo "  [-] WARNING: task_mmu.c fix failed to inject! The anchor line may have changed." >&2
+    echo "  [-] WARNING: task_mmu.c fix failed! Either the header or the macro is missing." >&2
   fi
 fi
 
