@@ -79,6 +79,58 @@ extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;\
   fi
 fi
 
+# 4. Fix fs/proc/task_mmu.c
+if [ -f "common/fs/proc/task_mmu.c.rej" ]; then
+  echo ">>> Found task_mmu.c.rej. Analyzing failure type..."
+  
+  # Path 1: 6.12 Behavior (Headers applied natively, show_smap logic rejected)
+  if grep -q "show_smap" "common/fs/proc/task_mmu.c.rej"; then
+    echo "  -> Logic rejection detected (6.12 behavior). Injecting show_smap patch..."
+    
+    # 6.12 initializes 'struct mem_size_stats mss = {};'. 
+    # We MUST inject after this line to prevent C99 declaration errors.
+    sed -i '/static int show_smap(struct seq_file \*m, void \*v)/,/struct mem_size_stats mss = {};/ {
+      /struct mem_size_stats mss = {};/a\
+\
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP\
+	if (vma->vm_file) {\
+		if (SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file)))\
+			return 0;\
+	}\
+#endif \/\/ #ifdef CONFIG_KSU_SUSFS_SUS_MAP
+    }' common/fs/proc/task_mmu.c
+
+    if grep -q 'SUSFS_IS_INODE_SUS_MAP' common/fs/proc/task_mmu.c; then
+      echo "  -> task_mmu.c 6.12 logic fix verified!"
+      rm "common/fs/proc/task_mmu.c.rej"
+    else
+      echo "  [-] WARNING: task_mmu.c 6.12 logic fix failed!" >&2
+    fi
+
+  # Path 2: 5.15 Behavior (show_smap logic applied natively, headers rejected)
+  elif grep -q "susfs_def.h" "common/fs/proc/task_mmu.c.rej" || grep -q "CONFIG_KSU_SUSFS_SUS_KSTAT" "common/fs/proc/task_mmu.c.rej"; then
+    echo "  -> Header rejection detected (5.15 behavior). Injecting missing headers..."
+    
+    # Use uaccess.h as the anchor, since we know from the .rej file that it exists exactly where we need it
+    if ! grep -q 'susfs_def.h' common/fs/proc/task_mmu.c; then
+      sed -i '/#include <linux\/uaccess.h>/a\
+#include <linux\/cred.h>\
+#if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\
+#include <linux\/susfs_def.h>\
+#endif' common/fs/proc/task_mmu.c
+    fi
+
+    if grep -q 'susfs_def.h' common/fs/proc/task_mmu.c; then
+      echo "  -> task_mmu.c 5.15 header fix verified!"
+      rm "common/fs/proc/task_mmu.c.rej"
+    else
+      echo "  [-] WARNING: task_mmu.c 5.15 header fix failed!" >&2
+    fi
+    
+  else
+    echo "  [-] UNKNOWN rejection format in task_mmu.c.rej! Cannot safely patch." >&2
+  fi
+fi
 
 # 5. Final Validation
 echo ">>> Checking for unresolved patch rejections..."
