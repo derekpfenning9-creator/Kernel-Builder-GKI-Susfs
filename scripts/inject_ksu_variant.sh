@@ -49,30 +49,6 @@ echo ">>> Enforcing CI symmetry (locking version strings to ${SHORT_HASH})..."
 sed -i "s/rev-list --count HEAD/rev-list --count ${UPSTREAM_HASH}/g" "${MANAGER_DIR}/kernel/Kbuild" 2>/dev/null || true
 sed -i "s/rev-list --count \$(REPO_BRANCH)/rev-list --count ${UPSTREAM_HASH}/g" "${MANAGER_DIR}/kernel/Kbuild" 2>/dev/null || true
 
-echo ">>> Cleaning KSU tree to remove -dirty flag..."
-# Target the actual cloned repository directory
-KSU_DIR="${MANAGER_DIR}"
-
-if [ -d "$KSU_DIR" ]; then
-    cd "$KSU_DIR"
-    
-    # Set dummy Git credentials
-    git config user.email "runner@example.com"
-    git config user.name "CI Runner"
-    
-    # Stage all modified files (including the Kbuild file you just sed-patched)
-    git add -A
-    
-    # Commit them. The '|| true' prevents the script from crashing if there are no changes.
-    git commit -m "ci: Sanitize tree to drop -dirty flag" || true
-    
-    cd - > /dev/null
-    
-    echo ">>> KSU tree sanitized."
-else
-    echo ">>> Warning: KSU directory not found at $KSU_DIR, skipping dirty flag fix."
-fi
-
 echo ">>> Injecting Bazel symlink..."
 DRIVER_ROOT="common/drivers"
 rm -rf "${DRIVER_ROOT}/kernelsu"
