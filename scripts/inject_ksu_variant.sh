@@ -42,17 +42,23 @@ git -C "${MANAGER_DIR}" fetch --quiet "https://github.com/${UPSTREAM_REPO}.git" 
 UPSTREAM_HASH=$(git -C "${MANAGER_DIR}" merge-base HEAD FETCH_HEAD)
 SHORT_HASH=${UPSTREAM_HASH:0:7}
 
-# Export the exact sync commit to the GitHub Env for the artifact fetcher
-echo "UPSTREAM_HASH=${UPSTREAM_HASH}" >> $GITHUB_ENV
-
 echo ">>> Severing Kbuild Git dependencies for Kleaf Sandbox..."
 TARGET_KBUILD="${MANAGER_DIR}/kernel/Kbuild"
 
+# Calculate the exact values outside the sandbox
+CALCULATED_COUNT=$(git -C "${MANAGER_DIR}" rev-list --count "${UPSTREAM_HASH}" 2>/dev/null || echo "11950")
+CALCULATED_TAG=$(git -C "${MANAGER_DIR}" describe --tags --abbrev=0 "${UPSTREAM_HASH}" 2>/dev/null || echo "v3.2.0")
+
+# Export the exact sync variables to the GitHub Env for BOTH the artifact fetcher AND Bazel
+if [[ -n "${GITHUB_ENV:-}" ]]; then
+    echo "UPSTREAM_HASH=${UPSTREAM_HASH}" >> "$GITHUB_ENV"
+    echo "KSU_GIT_VERSION=${CALCULATED_COUNT}" >> "$GITHUB_ENV"
+    echo "KSU_COMMIT_SHA=${SHORT_HASH}" >> "$GITHUB_ENV"
+    echo "KSU_GIT_TAG=${CALCULATED_TAG}" >> "$GITHUB_ENV"
+fi
+
+# 1. Neutralize Kbuild (Make environment)
 if [ -f "$TARGET_KBUILD" ]; then
-    # Calculate the exact values outside the sandbox
-    CALCULATED_COUNT=$(git -C "${MANAGER_DIR}" rev-list --count "${UPSTREAM_HASH}" 2>/dev/null || echo "11950")
-    CALCULATED_TAG=$(git -C "${MANAGER_DIR}" describe --tags --abbrev=0 "${UPSTREAM_HASH}" 2>/dev/null || echo "v3.2.0")
-    
     # Prepend GNU Make immutable overrides to the very top of Kbuild.
     # This natively forces Make to ignore all $(shell git...) commands downstream.
     {
@@ -61,6 +67,8 @@ if [ -f "$TARGET_KBUILD" ]; then
         echo "override KSU_GIT_TAG := ${CALCULATED_TAG}"
         echo "override KSU_TAG_NAME := ${CALCULATED_TAG}"
         echo "override KSU_COMMIT_SHA := ${SHORT_HASH}"
+        echo "override KSU_BRANCH := ${UPSTREAM_BRANCH}"
+        echo "override KSU_GIT_BRANCH := ${UPSTREAM_BRANCH}"
         cat "$TARGET_KBUILD"
     } > "${TARGET_KBUILD}.tmp" && mv "${TARGET_KBUILD}.tmp" "$TARGET_KBUILD"
     
@@ -68,6 +76,23 @@ if [ -f "$TARGET_KBUILD" ]; then
     echo "  -> Prepend Immutable Count: ${CALCULATED_COUNT}"
     echo "  -> Prepend Immutable Tag: ${CALCULATED_TAG}"
     echo "  -> Prepend Immutable SHA: ${SHORT_HASH}"
+    echo "  -> Prepend Immutable Branch: ${UPSTREAM_BRANCH}"
+fi
+
+# 2. Neutralize Shell Scripts (SukiSU-Ultra / Next anomalies)
+KSU_VERSION_SCRIPT="${MANAGER_DIR}/scripts/ksu_version.sh"
+if [ -f "$KSU_VERSION_SCRIPT" ]; then
+    echo "  -> Neutralizing dynamic shell queries in ksu_version.sh..."
+    
+    # Use POSIX-compliant sed output redirection to bypass 5.15 Kleaf sandbox restrictions
+    sed "s/git rev-parse --short HEAD/echo \"${SHORT_HASH}\"/g; \
+         s/git describe --tags --abbrev=0/echo \"${CALCULATED_TAG}\"/g; \
+         s/git rev-list --count HEAD/echo \"${CALCULATED_COUNT}\"/g; \
+         s/git rev-parse --abbrev-ref HEAD/echo \"${UPSTREAM_BRANCH}\"/g" \
+         "$KSU_VERSION_SCRIPT" > "${KSU_VERSION_SCRIPT}.tmp"
+         
+    mv "${KSU_VERSION_SCRIPT}.tmp" "$KSU_VERSION_SCRIPT"
+    chmod +x "$KSU_VERSION_SCRIPT"
 fi
 
 echo ">>> Injecting Bazel symlink..."
