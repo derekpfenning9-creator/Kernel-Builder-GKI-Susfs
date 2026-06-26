@@ -26,6 +26,18 @@ on:
         required: false
         type: boolean
         default: true
+
+      enable_zeromount:
+        description: "Enable SUSFS VFS Zeromount (Hides root mounts completely)"
+        required: false
+        type: boolean
+        default: true
+
+      enable_docker_support:
+        description: "Enable Docker/Container kernel configs (veth, bridge, cgroups)"
+        required: false
+        type: boolean
+        default: false
         
       target_version:
         description: "Kernel Version (e.g., 6.1.145)"
@@ -219,9 +231,59 @@ jobs:
       - name: Configure Kconfigs and Fragments
         env:
           WITH_WG: ${{ inputs.build_wg }}
+          ENABLE_ZEROMOUNT: ${{ inputs.enable_zeromount }}
+          ENABLE_DOCKER_SUPPORT: ${{ inputs.enable_docker_support }}
         run: |
           chmod +x scripts/configure_kconfigs.sh
           ./scripts/configure_kconfigs.sh
+          
+          # Target standard arm64 GKI defconfig inside workspace
+          GKI_DEFCONFIG="kernel_workspace/common/arch/arm64/configs/gki_defconfig"
+          
+          if [ -f "$GKI_DEFCONFIG" ]; then
+            echo ">>> Modifying GKI Baseline: $GKI_DEFCONFIG"
+            
+            # --- 1. VFS Zeromount Integration ---
+            if [ "$ENABLE_ZEROMOUNT" = "true" ] && [ "${{ inputs.enable_ksu_susfs }}" = "true" ]; then
+              echo ">>> Appending SUSFS VFS Zeromount Configs..."
+              sed -i '/CONFIG_SUSFS_SU_VFS_ZEROMOUNT/d' "$GKI_DEFCONFIG"
+              echo "CONFIG_SUSFS_SU_VFS_ZEROMOUNT=y" >> "$GKI_DEFCONFIG"
+            fi
+            
+            # --- 2. Docker / Virtual Container Support ---
+            if [ "$ENABLE_DOCKER_SUPPORT" = "true" ]; then
+              echo ">>> Injecting Container Virtualization & Docker Engine Requirements..."
+              cat << 'EOF' >> "$GKI_DEFCONFIG"
+# Docker Core Requirements
+CONFIG_VETH=y
+CONFIG_BRIDGE=y
+CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y
+CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y
+CONFIG_NETFILTER_XT_MATCH_IPVS=y
+CONFIG_IP_NF_NAT=y
+CONFIG_IP_NF_TARGET_MASQUERADE=y
+CONFIG_NETFILTER_XT_TARGET_MASQUERADE=y
+CONFIG_OVERLAY_FS=y
+
+# Namespace & Cgroup validation assurances
+CONFIG_NAMESPACES=y
+CONFIG_NET_NS=y
+CONFIG_PID_NS=y
+CONFIG_IPC_NS=y
+CONFIG_UTS_NS=y
+CONFIG_CGROUPS=y
+CONFIG_CGROUP_DEVICE=y
+CONFIG_CGROUP_FREEZER=y
+CONFIG_CGROUP_MEM_RES_CTLR=y
+CONFIG_KEYS=y
+EOF
+            fi
+            
+            echo ">>> Current additions verification tail:"
+            tail -n 25 "$GKI_DEFCONFIG"
+          else
+            echo "[-] Warning: Target path $GKI_DEFCONFIG not found."
+          fi
 
       - name: Run Custom Patches
         run: |
@@ -325,61 +387,4 @@ jobs:
               REPO="KernelSU-Next/KernelSU-Next"
           elif [[ "${VARIANT}" == "SukiSU-Ultra" ]]; then
               REPO="SukiSU-Ultra/SukiSU-Ultra"
-          elif [[ "${VARIANT}" == "ReSukiSU" ]]; then
-              REPO="ReSukiSU/ReSukiSU"
-          else
-              REPO="tiann/KernelSU"
-          fi
-          
-          echo ">>> Searching $REPO for the Release Manager APK built from commit: ${{ env.UPSTREAM_HASH }}..."
-          
-          # Query GitHub API for successful runs matching the EXACT upstream commit
-          RUNS_JSON=$(curl -s -H "Authorization: token $GH_TOKEN" \
-            "https://api.github.com/repos/$REPO/actions/runs?head_sha=${{ env.UPSTREAM_HASH }}&status=success")
-            
-          RUN_IDS=$(echo "$RUNS_JSON" | jq -r '.workflow_runs[].id')
-
-          DOWNLOAD_URL=""
-          
-          for RUN_ID in $RUN_IDS; do
-            ARTIFACTS=$(curl -s -H "Authorization: token $GH_TOKEN" \
-              "https://api.github.com/repos/$REPO/actions/runs/$RUN_ID/artifacts")
-              
-            # Safely targets 'manager' or 'Manager-release' while blocking '-gradle' and '-debug'
-            DOWNLOAD_URL=$(echo "$ARTIFACTS" | jq -r '.artifacts[] | select(.name | test("^(manager|Manager)(-release)?$")) | .archive_download_url' | head -n 1)
-            
-            if [ -n "$DOWNLOAD_URL" ] && [ "$DOWNLOAD_URL" != "null" ]; then
-              echo ">>> Found Release Manager artifact on Run ID: $RUN_ID"
-              break
-            fi
-          done
-          
-          if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" == "null" ]; then
-            echo "[-] Failed to locate a Release Manager artifact in recent builds for $REPO."
-            exit 1
-          fi
-          
-          echo ">>> Downloading Manager from $DOWNLOAD_URL..."
-          mkdir -p manager_apk
-          curl -L -H "Authorization: token $GH_TOKEN" -o manager.zip "$DOWNLOAD_URL"
-          
-          echo ">>> Extracting Manager..."
-          unzip -o manager.zip -d manager_apk/
-          rm manager.zip
-          
-          echo ">>> Manager successfully staged for final upload!"
-          
-      - name: Upload final artifact (Kernel)
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.ARTIFACT_NAME }}
-          path: out/final/
-          if-no-files-found: error
-
-      - name: Upload Manager APK
-        if: inputs.enable_ksu_susfs == true
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ github.event.inputs.root_manager }}-Manager
-          path: manager_apk/*.apk
-          if-no-files-found: error
+          elif
