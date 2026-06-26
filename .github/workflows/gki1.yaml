@@ -387,4 +387,22 @@ EOF
               REPO="KernelSU-Next/KernelSU-Next"
           elif [[ "${VARIANT}" == "SukiSU-Ultra" ]]; then
               REPO="SukiSU-Ultra/SukiSU-Ultra"
-          elif
+          elif [[ "${VARIANT}" == "ReSukiSU" ]]; then
+              REPO="ReSukiSU/ReSukiSU"
+          else
+              REPO="tiann/KernelSU"
+          fi
+          
+          echo ">>> Searching $REPO for the Release Manager APK built from commit: ${{ env.UPSTREAM_HASH }}..."
+          
+          # Query GitHub API for successful runs matching the EXACT upstream commit
+          RUNS_JSON=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/$REPO/actions/runs?head_sha=${{ env.UPSTREAM_HASH }}&status=success")
+            
+          RUN_IDS=$(echo "$RUNS_JSON" | jq -r '.workflow_runs[].id')
+
+          DOWNLOAD_URL=""
+          
+          for RUN_ID in $RUN_IDS; do
+            ARTIFACTS=$(curl -s -H "Authorization: token $GH_TOKEN" \
+              "
